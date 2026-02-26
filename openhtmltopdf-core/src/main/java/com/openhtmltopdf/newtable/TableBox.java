@@ -310,8 +310,9 @@ public class TableBox extends BlockBox {
         ensureChildren(c);
         // If we have a running footer, we need its dimensions right away
         boolean running = c.isPrint() && getStyle().isPaginateTable();
+        int headerHeight = 0;
         if (running) {
-            int headerHeight = layoutRunningHeader(c);
+            headerHeight = layoutRunningHeader(c);
             int footerHeight = layoutRunningFooter(c);
             int spacingHeight = footerHeight == 0 ? 0 : getStyle().getBorderVSpacing(c);
 
@@ -324,6 +325,19 @@ public class TableBox extends BlockBox {
             }
         }
         super.layoutChildren(c, contentStart);
+
+        // If the table has a running header but no body rows fit on the first page,
+        // force the entire table to the next page to avoid rendering an orphan header
+        // (i.e. a header with no body content on the same page).
+        if (running && headerHeight > 0 && !isNeedPageClear()) {
+            TableRowBox firstBodyRow = getFirstBodyRow();
+            if (firstBodyRow != null) {
+                PageBox first = c.getRootLayer().getFirstPage(c, this);
+                if (first != null && firstBodyRow.getAbsY() >= first.getBottom()) {
+                    setNeedPageClear(true);
+                }
+            }
+        }
     }
 
     private int layoutRunningHeader(LayoutContext c) {
@@ -715,6 +729,39 @@ public class TableBox extends BlockBox {
     @Override
     protected boolean isMayCollapseMarginsWithChildren() {
         return false;
+    }
+
+    /**
+     * Paginate tables are designed to span multiple pages, so returning {@code true}
+     * from {@code crossesPageBreak} is meaningless and actively harmful.
+     *
+     * <p>BlockBoxing's 3-attempt loop for {@code page-break-inside: avoid} runs as:
+     * <ol>
+     *   <li>1st layout at original position: {@code setNeedPageClear(true)} fires (header does not fit)</li>
+     *   <li>2nd layout with page-clear: table moves to next page — <b>correct result</b></li>
+     *   <li>3rd layout without page-clear (triggered when {@code crossesPageBreak} is
+     *       still {@code true} after attempt 2): table is placed back at original position;
+     *       BlockBoxing then moves only the {@code thead} section via
+     *       {@link com.openhtmltopdf.render.Box#forcePageBreakBefore}, which adds
+     *       {@code extraSpaceTop} (= thead height) to the delta, displacing the header
+     *       downward by one header-height on the new page;
+     *       {@code updateHeaderPosition} later pulls the header back to the page top,
+     *       but the tbody rows remain at their displaced positions, producing a blank gap
+     *       equal to the thead height between the header and the first body row.</li>
+     * </ol>
+     *
+     * <p>By returning {@code false} for paginate tables, the 3rd attempt is suppressed
+     * ({@code pageBreakAfterRetry} becomes {@code false}), so the correct 2nd-attempt
+     * layout is preserved as the final result. The table is still moved to the next page
+     * when necessary via the {@code setNeedPageClear} mechanism inside
+     * {@link #layoutChildren(LayoutContext, int)}.
+     */
+    @Override
+    public boolean crossesPageBreak(LayoutContext c) {
+        if (c.isPrint() && getStyle().isPaginateTable()) {
+            return false;
+        }
+        return super.crossesPageBreak(c);
     }
 
     protected TableSectionBox sectionAbove(
