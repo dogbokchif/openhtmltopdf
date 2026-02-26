@@ -324,7 +324,23 @@ public class TableBox extends BlockBox {
                 setNeedPageClear(true);
             }
         }
+        // Paginate table rows must independently honour their own page-break-inside:
+        // avoid constraints even when the table itself is being re-laid out with
+        // BlockBoxingState.DENY (the 2nd-attempt page-clear pass in BlockBoxing).
+        // DENY is safe to suppress here because crossesPageBreak() always returns
+        // false for paginate tables, so no table-level cascading retry can occur.
+        // Without this reset, every row inside the table silently loses its own
+        // avoid behaviour whenever the table is moved to a new page.
+        LayoutContext.BlockBoxingState savedState = c.getBlockBoxingState();
+        if (running && savedState == LayoutContext.BlockBoxingState.DENY) {
+            c.setBlockBoxingState(LayoutContext.BlockBoxingState.NOT_SET);
+        }
+
         super.layoutChildren(c, contentStart);
+
+        if (running && savedState == LayoutContext.BlockBoxingState.DENY) {
+            c.setBlockBoxingState(savedState);
+        }
 
         // If the table has a running header but no body rows fit on the first page,
         // force the entire table to the next page to avoid rendering an orphan header
