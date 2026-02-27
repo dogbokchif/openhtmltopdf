@@ -363,6 +363,13 @@ public class PagedBoxCollector {
             			// A box with overflow set to hidden.
             			ourClip = block.getChildrenClipEdge(c);
             			clipPages = new ArrayList<>();
+            		} else if (block instanceof TableCellBox) {
+            		    TableCellBox cell = (TableCellBox) block;
+            		    if (cell.getTable() != null && cell.getTable().getStyle().isPaginateTable()) {
+            		        // Per-page clip for paginate table cells:
+            		        // ourClip stays null; per-page clips are computed in addBlockToAll.
+            		        clipPages = new ArrayList<>();
+            		    }
              		}
             	}
             	
@@ -412,10 +419,23 @@ public class PagedBoxCollector {
         	if (intersectsBorderBoxBounds(c, pageClip, container)) {
         		addBlock(container, pageResult);
 
-        		if (ourClip != null) {
+        		Shape clipToApply = ourClip;
+        		if (clipToApply == null && clipPages != null && c instanceof RenderingContext && container instanceof TableCellBox) {
+        		    // Per-page clip mode for paginate table cells: compute clip for this specific page.
+        		    // NOTE: Must cast to TableCellBox (not BlockBox) so that TableCellBox.getChildrenClipEdge(RenderingContext)
+        		    // is called instead of Box.getChildrenClipEdge(CssContext), which returns the full padding area.
+        		    RenderingContext rc = (RenderingContext) c;
+        		    int savedPageNo = rc.getPageNo();
+        		    PageBox savedPage = rc.getPage();
+        		    rc.setPage(i, pageBox);
+        		    clipToApply = ((TableCellBox) container).getChildrenClipEdge(rc);
+        		    rc.setPage(savedPageNo, savedPage);
+        		}
+
+        		if (clipToApply != null) {
         			// Add a clip operation before the block's descendents (inline or block).
-        			pageResult.clipAll(new OperatorClip(ourClip));
-        			
+        			pageResult.clipAll(new OperatorClip(clipToApply));
+
         			// Add the page result to a list, so we can pop clip later.
         			clipPages.add(pageResult);
         		}
