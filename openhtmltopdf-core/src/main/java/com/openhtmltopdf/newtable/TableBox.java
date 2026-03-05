@@ -311,6 +311,8 @@ public class TableBox extends BlockBox {
         // If we have a running footer, we need its dimensions right away
         boolean running = c.isPrint() && getStyle().isPaginateTable();
         int headerHeight = 0;
+        int prevExtraSpaceTop = c.getExtraSpaceTop();
+        int prevExtraSpaceBottom = c.getExtraSpaceBottom();
         if (running) {
             headerHeight = layoutRunningHeader(c);
             int footerHeight = layoutRunningFooter(c);
@@ -354,6 +356,17 @@ public class TableBox extends BlockBox {
                 }
             }
         }
+
+        // Restore extraSpaceTop/Bottom to the values before layoutRunningHeader/Footer set them.
+        // layoutRunningHeader adds theadHeight + vSpacing and layoutRunningFooter adds tfootHeight + vSpacing
+        // to these values. If not restored, BlockBoxing's forcePageBreakBefore for the TABLE ITSELF
+        // (triggered by setNeedPageClear) would use the contaminated values, pushing the table too far down.
+        // Row-level forcePageBreakBefore is unaffected because it runs during super.layoutChildren(), before
+        // the restore below, so rows still benefit from the correct extra space values.
+        if (running) {
+            c.setExtraSpaceTop(prevExtraSpaceTop);
+            c.setExtraSpaceBottom(prevExtraSpaceBottom);
+        }
     }
 
     private int layoutRunningHeader(LayoutContext c) {
@@ -366,7 +379,7 @@ public class TableBox extends BlockBox {
                 section.initContainingLayer(c);
                 section.layout(c);
 
-                c.setExtraSpaceTop(c.getExtraSpaceTop() + section.getHeight());
+                c.setExtraSpaceTop(c.getExtraSpaceTop() + section.getHeight() + getStyle().getBorderVSpacing(c));
 
                 result = section.getHeight();
 
@@ -528,9 +541,7 @@ public class TableBox extends BlockBox {
                     if (c.getPageNo() == _contentLimitContainer.getInitialPageNo()) {
                         newAbsY = section.getOriginalAbsY();
                     } else {
-                        newAbsY = limit.getTop() -
-                            getStyle().getBorderVSpacing(c) -
-                            section.getHeight();
+                        newAbsY = c.getPage().getTop();
                     }
 
                     int diff = newAbsY - section.getAbsY();

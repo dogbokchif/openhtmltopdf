@@ -308,6 +308,26 @@ public class TableCellBox extends BlockBox {
     }
 
     /**
+     * Returns the document-Y bottom of the thead on the current rendering page,
+     * computed from {@code c.getPage().getTop()} rather than from the thead section's
+     * mutable {@code absY} (which changes as {@code addTableHeaderFooter} iterates pages).
+     * Returns 0 if the table has no thead or this is not a paginate table.
+     */
+    private int getPageTheadBottom(RenderingContext c) {
+        TableBox table = getTable();
+        if (table == null || !table.getStyle().isPaginateTable()) {
+            return 0;
+        }
+        if (table.getChildCount() > 0) {
+            Box first = table.getChild(0);
+            if (first instanceof TableSectionBox && ((TableSectionBox) first).isHeader()) {
+                return c.getPage().getTop() + first.getHeight();
+            }
+        }
+        return 0;
+    }
+
+    /**
      * Adjusts the bounds of a rowspan cell on continuation pages to avoid overlapping with thead.
      * For rowspan cells that span multiple pages, this ensures the cell's rendering starts
      * after the thead section on subsequent pages.
@@ -437,22 +457,21 @@ public class TableCellBox extends BlockBox {
             if (c.getPageNo() == contentLimitContainer.getInitialPageNo()) {
                 top = result.y;
             } else {
-                // For rowspan cells on continuation pages, start from thead bottom
+                // On continuation pages the cell must start at or below the thead bottom.
+                // We compute theadBottom from c.getPage().getTop() rather than from
+                // section.getAbsY() because the section position is mutated per-page
+                // during PagedBoxCollector and may reflect a different page by the time
+                // tbody cells are processed.
+                int theadBottom = getPageTheadBottom(c);
                 int rowSpan = getStyle().getRowSpan();
                 if (rowSpan > 1) {
-                    TableBox table = getTable();
-                    if (table != null) {
-                        int theadBottom = getTheadBottom(table);
-                        if (theadBottom > 0) {
-                            top = theadBottom;
-                        } else {
-                            top = limit.getTop() - ((TableRowBox)getParent()).getExtraSpaceTop();
-                        }
-                    } else {
-                        top = limit.getTop() - ((TableRowBox)getParent()).getExtraSpaceTop();
-                    }
+                    top = theadBottom > 0 ? theadBottom
+                            : limit.getTop() - ((TableRowBox)getParent()).getExtraSpaceTop();
                 } else {
                     top = limit.getTop() - ((TableRowBox)getParent()).getExtraSpaceTop();
+                    if (theadBottom > 0) {
+                        top = Math.max(top, theadBottom);
+                    }
                 }
             }
             
