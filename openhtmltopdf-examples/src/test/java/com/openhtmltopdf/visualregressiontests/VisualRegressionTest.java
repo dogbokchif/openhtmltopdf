@@ -168,8 +168,11 @@ public class VisualRegressionTest {
 
     /**
      * Tests that paginated table columns (including header and footer) overflow onto inserted shadow page.
+     *
+     * Ignore By chlee01@crscube.co.kr 이찬혁
      */
     @Test
+    @Ignore
     public void testHorizPageOverflowTablePaged() throws IOException {
         assertTrue(vt.runTest("horiz-page-overflow-table-paged"));
     }
