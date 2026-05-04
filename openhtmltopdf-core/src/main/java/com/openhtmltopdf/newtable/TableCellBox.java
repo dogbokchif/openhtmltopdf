@@ -523,14 +523,14 @@ public class TableCellBox extends BlockBox {
         if (c.isPrint() && getTable().getStyle().isPaginateTable()) {
             Rectangle bounds = getContentLimitedBorderEdge(c);
             if (bounds != null) {
+                // Clip at padding edge, not content edge: glyph descenders bleed past the line box into padding.
                 BorderPropertySet border = getBorder(c);
-                RectPropertySet padding = getPadding(c);
-                bounds.y += (int)border.top() + (int)padding.top();
-                bounds.height -= (int)border.height() + (int)padding.height();
+                bounds.y += (int) border.top();
+                bounds.height -= (int) border.height();
                 return bounds;
             }
-        } 
-        
+        }
+
         return super.getChildrenClipEdge(c);
     }
     
