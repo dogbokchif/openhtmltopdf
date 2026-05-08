@@ -1281,6 +1281,14 @@ public abstract class Box implements Styleable, DisplayListItem {
     }
 
     public void analyzePageBreaks(LayoutContext c, ContentLimitContainer container) {
+        // Phantom box guard: a childless, zero-height box (e.g. empty <tbody/>)
+        // positioned past the last visible content would otherwise set the next
+        // page's content limit, causing a paginate table's running header to
+        // be repositioned onto a page with no body content (overlapping the
+        // following sibling). See fs-table-paginate-clash.
+        if (getChildCount() == 0 && getHeight() == 0) {
+            return;
+        }
         container.updateTop(c, getAbsY());
         for (Box b : getChildren()) {
             b.analyzePageBreaks(c, container);

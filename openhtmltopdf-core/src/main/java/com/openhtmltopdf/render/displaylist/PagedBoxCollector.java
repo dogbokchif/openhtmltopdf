@@ -40,6 +40,13 @@ public class PagedBoxCollector {
 		private Rectangle _contentWindowOnDocument = null;
         private Rectangle _firstShadowPageContentWindowOnDocument = null;
 
+        // Top-most blocks/inlines: paginate-table running header descendants.
+        // Painted AFTER all regular blocks so the running header covers any
+        // spillover from previous-page rows that share the running header's
+        // Y range on this page.
+        private List<DisplayListItem> _topBlocks = null;
+        private List<DisplayListItem> _topInlines = null;
+
         private void addShadowPage(PageResult shadowPage) {
             if (_shadowPages == null) {
                 _shadowPages = new ArrayList<>();
@@ -60,12 +67,26 @@ public class PagedBoxCollector {
 			}
 			_blocks.add(block);
 		}
-		
+
+		private void addTopBlock(DisplayListItem block) {
+			if (_topBlocks == null) {
+				_topBlocks = new ArrayList<>();
+			}
+			_topBlocks.add(block);
+		}
+
 		private void addInline(DisplayListItem inline) {
 			if (_inlines == null) {
 				_inlines = new ArrayList<>();
 			}
 			_inlines.add(inline);
+		}
+
+		private void addTopInline(DisplayListItem inline) {
+			if (_topInlines == null) {
+				_topInlines = new ArrayList<>();
+			}
+			_topInlines.add(inline);
 		}
 		
 		private void addTableCell(TableCellBox tcell) {
@@ -120,9 +141,17 @@ public class PagedBoxCollector {
 		public List<DisplayListItem> blocks() {
 			return this._blocks == null ? Collections.<DisplayListItem>emptyList() : this._blocks;
 		}
-		
+
+		public List<DisplayListItem> topBlocks() {
+			return this._topBlocks == null ? Collections.<DisplayListItem>emptyList() : this._topBlocks;
+		}
+
 		public List<DisplayListItem> inlines() {
 			return this._inlines == null ? Collections.<DisplayListItem>emptyList() : this._inlines;
+		}
+
+		public List<DisplayListItem> topInlines() {
+			return this._topInlines == null ? Collections.<DisplayListItem>emptyList() : this._topInlines;
 		}
 		
 		public List<TableCellBox> tcells() {
@@ -249,6 +278,16 @@ public class PagedBoxCollector {
 	private final List<PageBox> pages;
 	private final PageFinder finder;
 	private final int startPage;
+
+	/**
+	 * Counter incremented while collecting descendants of a paginate-table's
+	 * running header inside addTableHeaderFooter. While > 0, blocks/inlines
+	 * are routed to PageResult's _topBlocks/_topInlines so they're painted
+	 * AFTER regular content on each page — the running header therefore
+	 * visually covers any spillover from previous-page rows that share its
+	 * Y range.
+	 */
+	private int _runningHeaderDepth = 0;
 	
 	/**
 	 * A more efficient paged box collector that can only find boxes on pages minPage to
@@ -493,10 +532,17 @@ public class PagedBoxCollector {
         Rectangle pageClip = pageResult.getContentWindowOnDocument(pageBox, c);
 
         if (intersectsAggregateBounds(c, pageClip, container)) {
-            pageResult.addInline(container);
+            if (_runningHeaderDepth > 0) {
+                pageResult.addTopInline(container);
+                if (pageResult._topInlines != null) {
+                    container.addAllChildren(pageResult._topInlines, layer);
+                }
+            } else {
+                pageResult.addInline(container);
 
-            // Recursively add all children of the line box to the inlines list.
-            container.addAllChildren(pageResult._inlines, layer);
+                // Recursively add all children of the line box to the inlines list.
+                container.addAllChildren(pageResult._inlines, layer);
+            }
         }
         
         if (includeShadowPages && pageBox.shouldInsertPages()) {
@@ -628,23 +674,30 @@ public class PagedBoxCollector {
     private void addTableHeaderFooter(CssContext c, Layer layer, Box container, int shadowPageNumber) {
         // Yes, this is one giant hack. The problem is that there is only one tfoot and thead box per table
         // but if -fs-table-paginate is set to paginate we need to collect the header and footer on every page
-        // that the table appears on. The solution we use here is to loop through the table's pages and update 
+        // that the table appears on. The solution we use here is to loop through the table's pages and update
         // the section's position before collecting its children.
-        
+
         TableBox table = ((TableSectionBox) container).getTable();
         RenderingContext rc = (RenderingContext) c;
-        
+
         int tableStart = findStartPage(c, table, layer.getCurrentTransformMatrix());
         int tableEnd = findEndPage(c, table, layer.getCurrentTransformMatrix());
-        
-        for (int pgTable = getValidMinPageNumber(tableStart); pgTable <= getValidMaxPageNumber(tableEnd); pgTable++) {
-            rc.setPage(pgTable, getPageBox(pgTable));
-            table.updateHeaderFooterPosition(rc);
 
-            for (int i = 0; i < container.getChildCount(); i++) {
-                Box child = container.getChild(i);
-                collect(c, layer, child, shadowPageNumber);
+        // Mark descendants collected here as "top-most" so they're painted last
+        // on each page and visually cover any spillover from previous-page rows.
+        _runningHeaderDepth++;
+        try {
+            for (int pgTable = getValidMinPageNumber(tableStart); pgTable <= getValidMaxPageNumber(tableEnd); pgTable++) {
+                rc.setPage(pgTable, getPageBox(pgTable));
+                table.updateHeaderFooterPosition(rc);
+
+                for (int i = 0; i < container.getChildCount(); i++) {
+                    Box child = container.getChild(i);
+                    collect(c, layer, child, shadowPageNumber);
+                }
             }
+        } finally {
+            _runningHeaderDepth--;
         }
     }
 
@@ -652,8 +705,12 @@ public class PagedBoxCollector {
      * Adds block box to appropriate flat box lists.
      */
     private void addBlock(Box container, PageResult pageResult) {
-        pageResult.addBlock(container);
-        
+        if (_runningHeaderDepth > 0) {
+            pageResult.addTopBlock(container);
+        } else {
+            pageResult.addBlock(container);
+        }
+
         if (container instanceof BlockBox) {
         	BlockBox block = (BlockBox) container;
         	

@@ -430,26 +430,71 @@ public class TableCellBox extends BlockBox {
     }
     
     public void paintCollapsedBorder(RenderingContext c, int side) {
+        // Skip painting on continuation pages where no spanned row has any
+        // content STARTING on this page — the cell's bbox reached this page
+        // only by padding/border spillover from the previous page. The
+        // collapsed border would otherwise leave a phantom row of borders
+        // below the running thead.
+        if (c.isPrint() && getTable() != null
+                && getTable().getStyle().isPaginateTable()
+                && !hasContentStartingOnPage(c)) {
+            return;
+        }
         c.getOutputDevice().paintCollapsedBorder(
                 c, getCollapsedPaintingBorder(), getCollapsedBorderBounds(c), side);
     }
-    
+
+    /**
+     * Returns true if this cell (or, for rowspan cells, any of the rows it
+     * spans) has content starting on the current rendering page. Used to
+     * skip painting cells whose bbox reached a continuation page only by
+     * padding/border spillover with no real content.
+     */
+    private boolean hasContentStartingOnPage(RenderingContext c) {
+        int rowSpan = Math.max(1, getStyle().getRowSpan());
+        Box current = getParent();
+        for (int i = 0; i < rowSpan && current != null; i++) {
+            if (current instanceof TableRowBox) {
+                ContentLimitContainer container = ((TableRowBox) current).getContentLimitContainer();
+                if (container != null) {
+                    if (c.getPageNo() == container.getInitialPageNo()) {
+                        return true;
+                    }
+                    ContentLimit limit = container.getContentLimit(c.getPageNo());
+                    if (limit != null && limit.getTop() != ContentLimit.UNDEFINED) {
+                        return true;
+                    }
+                }
+            }
+            current = current.getNextSibling();
+        }
+        return false;
+    }
+
     private Rectangle getContentLimitedBorderEdge(RenderingContext c) {
         Rectangle result = getPaintingBorderEdge(c);
-        
+
         TableSectionBox section = getSection();
         if (section.isHeader() || section.isFooter()) {
             return result;
         }
-        
+
         ContentLimitContainer contentLimitContainer = ((TableRowBox)getParent()).getContentLimitContainer();
         ContentLimit limit = contentLimitContainer.getContentLimit(c.getPageNo());
-        
+
         if (limit == null) {
             return null;
         } else {
-            if (limit.getTop() == ContentLimit.UNDEFINED || 
-                    limit.getBottom() == ContentLimit.UNDEFINED) {
+            if (limit.getTop() == ContentLimit.UNDEFINED) {
+                // Same phantom guard as paintCollapsedBorder: on a continuation
+                // page with no real content from any spanned row, don't paint
+                // the cell — its borders would form a phantom row below thead.
+                if (!hasContentStartingOnPage(c)) {
+                    return null;
+                }
+                return result;
+            }
+            if (limit.getBottom() == ContentLimit.UNDEFINED) {
                 return result;
             }
 

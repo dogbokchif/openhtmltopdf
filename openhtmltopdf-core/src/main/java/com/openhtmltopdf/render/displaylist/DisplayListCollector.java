@@ -188,13 +188,14 @@ public class DisplayListCollector {
      */
     protected void processPage(RenderingContext c, Layer layer, PageResult pg, DisplayListPageContainer dlPageList, boolean includeFloats, int pageNumber, int shadowPageNumber) {
 
+        Map<TableCellBox, List<CollapsedBorderSide>> collapsedTableBorders = pg.tcells().isEmpty() ? null
+                : collectCollapsedTableBorders(c, pg.tcells());
+
         if (!pg.blocks().isEmpty()) {
-            Map<TableCellBox, List<CollapsedBorderSide>> collapsedTableBorders = pg.tcells().isEmpty() ? null
-                    : collectCollapsedTableBorders(c, pg.tcells());
             DisplayListOperation dlo = new PaintBackgroundAndBorders(pg.blocks(), collapsedTableBorders);
             dlPageList.addOp(dlo);
         }
-        
+
         if (includeFloats) {
             for (BlockBox floater : pg.floats()) {
                 collectFloatAsLayer(c, layer, floater, dlPageList, pageNumber, shadowPageNumber);
@@ -213,6 +214,18 @@ public class DisplayListCollector {
 
         if (!pg.replaceds().isEmpty()) {
             DisplayListOperation dlo = new PaintReplacedElements(pg.replaceds());
+            dlPageList.addOp(dlo);
+        }
+
+        // Top-most pass: paginate-table running header descendants. Painted
+        // last so they cover any spillover from previous-page rows that
+        // share the running header's Y range on this page.
+        if (!pg.topBlocks().isEmpty()) {
+            DisplayListOperation dlo = new PaintBackgroundAndBorders(pg.topBlocks(), collapsedTableBorders);
+            dlPageList.addOp(dlo);
+        }
+        if (!pg.topInlines().isEmpty()) {
+            DisplayListOperation dlo = new PaintInlineContent(pg.topInlines());
             dlPageList.addOp(dlo);
         }
     }
