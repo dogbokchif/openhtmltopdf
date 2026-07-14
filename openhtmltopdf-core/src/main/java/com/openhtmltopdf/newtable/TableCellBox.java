@@ -435,8 +435,19 @@ public class TableCellBox extends BlockBox {
         // only by padding/border spillover from the previous page. The
         // collapsed border would otherwise leave a phantom row of borders
         // below the running thead.
+        //
+        // Header/footer sections are exempt: the running thead/tfoot is laid
+        // out (and page-break-analyzed) only once on the table's start page,
+        // so their rows have no content-limit data for continuation pages and
+        // hasContentStartingOnPage would wrongly report false there — which
+        // used to make the repeated header/footer collapsed borders vanish on
+        // page 2+. This mirrors the isHeader()/isFooter() early-out in
+        // getContentLimitedBorderEdge().
+        TableSectionBox section = getSection();
+        boolean isHeaderOrFooter = section != null && (section.isHeader() || section.isFooter());
         if (c.isPrint() && getTable() != null
                 && getTable().getStyle().isPaginateTable()
+                && !isHeaderOrFooter
                 && !hasContentStartingOnPage(c)) {
             return;
         }
