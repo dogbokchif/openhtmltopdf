@@ -288,7 +288,16 @@ public class PagedBoxCollector {
 	 * Y range.
 	 */
 	private int _runningHeaderDepth = 0;
-	
+
+	/**
+	 * When >= 0, collect() pins every box of the current subtree to exactly this
+	 * page instead of computing a page range from its bounds. Used while
+	 * collecting a paginate-table running header/footer for one specific page,
+	 * so a header box whose aggregate bounds straddle the adjacent page is not
+	 * added to (and painted on) two pages. See addTableHeaderFooter.
+	 */
+	private int _forcedPage = -1;
+
 	/**
 	 * A more efficient paged box collector that can only find boxes on pages minPage to
 	 * maxPage inclusive.
@@ -342,8 +351,17 @@ public class PagedBoxCollector {
 	public void collect(CssContext c, Layer layer, Box container, int shadowPageNumber) {
 	    int pgStart;
 	    int pgEnd;
-	    
-	    if (container instanceof BlockBox) {
+
+	    if (_forcedPage >= 0) {
+	        // Collecting a paginate-table running header/footer for a specific
+	        // page (see addTableHeaderFooter). The single header/footer box is
+	        // repositioned per page, but its aggregate painting bounds can still
+	        // straddle the adjacent page, which would otherwise cause collect to
+	        // add it to two pages and paint it twice. Pin the whole subtree to
+	        // exactly this page.
+	        pgStart = _forcedPage;
+	        pgEnd = _forcedPage;
+	    } else if (container instanceof BlockBox) {
            Rectangle bounds = container.getBorderBox(c);
            pgStart = findStartPage(c, bounds, layer.getCurrentTransformMatrix());
            pgEnd = findEndPage(c, bounds, layer.getCurrentTransformMatrix());
@@ -689,11 +707,28 @@ public class PagedBoxCollector {
         try {
             for (int pgTable = getValidMinPageNumber(tableStart); pgTable <= getValidMaxPageNumber(tableEnd); pgTable++) {
                 rc.setPage(pgTable, getPageBox(pgTable));
-                table.updateHeaderFooterPosition(rc);
 
-                for (int i = 0; i < container.getChildCount(); i++) {
-                    Box child = container.getChild(i);
-                    collect(c, layer, child, shadowPageNumber);
+                // findStartPage/findEndPage can return a wider range than the
+                // pages the table actually has content on (e.g. the page before
+                // the table's first row). On such a page updateHeaderFooterPosition
+                // is a no-op and the header/footer still points at its previous
+                // page; collecting it here would paint the header twice on that
+                // previous page. Skip pages where the table has no content.
+                if (!table.updateHeaderFooterPosition(rc)) {
+                    continue;
+                }
+
+                // Pin the header/footer to exactly this page. Its aggregate
+                // painting bounds may straddle the adjacent page; without this
+                // the box would be collected onto two pages and painted twice.
+                _forcedPage = pgTable;
+                try {
+                    for (int i = 0; i < container.getChildCount(); i++) {
+                        Box child = container.getChild(i);
+                        collect(c, layer, child, shadowPageNumber);
+                    }
+                } finally {
+                    _forcedPage = -1;
                 }
             }
         } finally {

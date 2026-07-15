@@ -517,13 +517,24 @@ public class TableBox extends BlockBox {
         }
     }
 
-    public void updateHeaderFooterPosition(RenderingContext c) {
+    /**
+     * Repositions the running header/footer for the current page.
+     *
+     * @return true if this table actually has content on the current page
+     * (i.e. a content limit exists for it). When false, the header/footer was
+     * NOT repositioned and still points at a previous page — callers must not
+     * collect/paint it for this page, otherwise the header would be painted
+     * twice on the page it was last positioned on. See addTableHeaderFooter.
+     */
+    public boolean updateHeaderFooterPosition(RenderingContext c) {
         ContentLimit limit = _contentLimitContainer.getContentLimit(c.getPageNo());
 
         if (limit != null) {
             updateHeaderPosition(c, limit);
             updateFooterPosition(c, limit);
+            return true;
         }
+        return false;
     }
 
     private void updateHeaderPosition(RenderingContext c, ContentLimit limit) {
